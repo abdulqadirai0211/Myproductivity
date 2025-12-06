@@ -17,7 +17,14 @@ const app = express();
 connectDB();
 
 // Middleware
-app.use(cors());
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production'
+        ? ['https://myproductivity.vercel.app', 'https://*.vercel.app'] // Update with your actual Vercel domain
+        : 'http://localhost:5173',
+    credentials: true,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
