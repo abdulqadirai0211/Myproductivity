@@ -1,21 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import {
-    getRoutines,
-    addRoutine,
-    updateRoutine,
-    deleteRoutine,
-    getRoutineCompletions,
-    toggleRoutineCompletion,
-    getRoutineHistory,
-} from '../utils/storage';
+import { routinesAPI } from '../services/api';
 import { useApp } from '../App';
 
 export default function RoutineTracker() {
     const [routines, setRoutines] = useState([]);
-    const [completions, setCompletions] = useState({});
     const [showForm, setShowForm] = useState(false);
     const [editingRoutine, setEditingRoutine] = useState(null);
     const [selectedRoutine, setSelectedRoutine] = useState(null);
+    const [loading, setLoading] = useState(true);
     const { triggerRefresh } = useApp();
 
     const [formData, setFormData] = useState({
@@ -28,33 +20,40 @@ export default function RoutineTracker() {
 
     useEffect(() => {
         loadRoutines();
-        loadCompletions();
     }, []);
 
-    const loadRoutines = () => {
-        const loadedRoutines = getRoutines();
-        setRoutines(loadedRoutines.filter(r => r.active));
+    const loadRoutines = async () => {
+        try {
+            setLoading(true);
+            const loadedRoutines = await routinesAPI.getAll();
+            setRoutines(loadedRoutines);
+        } catch (error) {
+            console.error('Error loading routines:', error);
+            alert('Failed to load routines. Please try again.');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const loadCompletions = () => {
-        const todayCompletions = getRoutineCompletions();
-        setCompletions(todayCompletions);
-    };
-
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (editingRoutine) {
-            updateRoutine(editingRoutine.id, formData);
-        } else {
-            addRoutine(formData);
-        }
+        try {
+            if (editingRoutine) {
+                await routinesAPI.update(editingRoutine._id, formData);
+            } else {
+                await routinesAPI.create(formData);
+            }
 
-        setFormData({ title: '', description: '', startTime: '', endTime: '', category: 'health' });
-        setShowForm(false);
-        setEditingRoutine(null);
-        loadRoutines();
-        triggerRefresh();
+            setFormData({ title: '', description: '', startTime: '', endTime: '', category: 'health' });
+            setShowForm(false);
+            setEditingRoutine(null);
+            await loadRoutines();
+            triggerRefresh();
+        } catch (error) {
+            console.error('Error saving routine:', error);
+            alert('Failed to save routine. Please try again.');
+        }
     };
 
     const handleEdit = (routine) => {
@@ -69,18 +68,29 @@ export default function RoutineTracker() {
         setShowForm(true);
     };
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (window.confirm('Are you sure you want to delete this routine?')) {
-            deleteRoutine(id);
-            loadRoutines();
-            triggerRefresh();
+            try {
+                await routinesAPI.delete(id);
+                await loadRoutines();
+                triggerRefresh();
+            } catch (error) {
+                console.error('Error deleting routine:', error);
+                alert('Failed to delete routine. Please try again.');
+            }
         }
     };
 
-    const handleToggleComplete = (routineId) => {
-        toggleRoutineCompletion(routineId);
-        loadCompletions();
-        triggerRefresh();
+    const handleToggleComplete = async (routineId) => {
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            await routinesAPI.toggleCompletion(routineId, today);
+            await loadRoutines();
+            triggerRefresh();
+        } catch (error) {
+            console.error('Error toggling routine:', error);
+            alert('Failed to update routine. Please try again.');
+        }
     };
 
     const handleViewHistory = (routine) => {
@@ -100,41 +110,64 @@ export default function RoutineTracker() {
         return icons[category] || icons.other;
     };
 
-    const getCategoryColor = (category) => {
-        const colors = {
-            health: 'var(--success-500)',
-            work: 'var(--primary-500)',
-            learning: 'var(--accent-500)',
-            personal: 'var(--warning-500)',
-            fitness: 'var(--success-400)',
-            mindfulness: 'var(--accent-400)',
-            other: 'var(--text-muted)',
-        };
-        return colors[category] || colors.other;
+    const isCompletedToday = (routine) => {
+        const today = new Date().toISOString().split('T')[0];
+        return routine.completions && routine.completions.get(today) === true;
+    };
+
+    const getStreak = (routine) => {
+        if (!routine.completions) return 0;
+
+        let streak = 0;
+        const today = new Date();
+
+        for (let i = 0; i < 365; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split('T')[0];
+
+            if (routine.completions.get(dateStr)) {
+                streak++;
+            } else {
+                break;
+            }
+        }
+
+        return streak;
+    };
+
+    const getCompletionRate = (routine) => {
+        if (!routine.completions) return 0;
+
+        const last30Days = 30;
+        let completed = 0;
+        const today = new Date();
+
+        for (let i = 0; i < last30Days; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split('T')[0];
+
+            if (routine.completions && routine.completions.get(dateStr)) {
+                completed++;
+            }
+        }
+
+        return Math.round((completed / last30Days) * 100);
     };
 
     const stats = {
         total: routines.length,
-        completed: Object.values(completions).filter(Boolean).length,
-        completionRate: routines.length > 0
-            ? Math.round((Object.values(completions).filter(Boolean).length / routines.length) * 100)
-            : 0,
+        completedToday: routines.filter(r => isCompletedToday(r)).length,
+        pending: routines.filter(r => !isCompletedToday(r)).length,
     };
-
-    // Group routines by category
-    const routinesByCategory = routines.reduce((acc, routine) => {
-        const category = routine.category || 'other';
-        if (!acc[category]) acc[category] = [];
-        acc[category].push(routine);
-        return acc;
-    }, {});
 
     return (
         <div className="fade-in">
             <div className="page-header">
-                <h1 className="page-title">🔄 Daily Routine Tracker</h1>
+                <h1 className="page-title">🔄 Routine Tracker</h1>
                 <p className="page-description">
-                    Track your daily habits and routines - resets every day
+                    Build consistent habits and track your daily routines
                 </p>
             </div>
 
@@ -146,18 +179,11 @@ export default function RoutineTracker() {
                 </div>
                 <div className="glass-card">
                     <div className="text-muted text-sm">Completed Today</div>
-                    <div className="text-xl font-bold" style={{ color: 'var(--success-400)' }}>
-                        {stats.completed} / {stats.total}
-                    </div>
+                    <div className="text-xl font-bold" style={{ color: 'var(--success-400)' }}>{stats.completedToday}</div>
                 </div>
                 <div className="glass-card">
-                    <div className="text-muted text-sm">Completion Rate</div>
-                    <div className="text-xl font-bold" style={{ color: 'var(--primary-400)' }}>
-                        {stats.completionRate}%
-                    </div>
-                    <div className="progress mt-sm">
-                        <div className="progress-bar" style={{ width: `${stats.completionRate}%` }} />
-                    </div>
+                    <div className="text-muted text-sm">Pending</div>
+                    <div className="text-xl font-bold" style={{ color: 'var(--warning-400)' }}>{stats.pending}</div>
                 </div>
             </div>
 
@@ -189,7 +215,7 @@ export default function RoutineTracker() {
                                 className="input"
                                 value={formData.title}
                                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                placeholder="e.g., Morning Exercise, Read for 30 minutes..."
+                                placeholder="Morning meditation, Evening workout..."
                                 required
                             />
                         </div>
@@ -202,12 +228,12 @@ export default function RoutineTracker() {
                                 className="textarea"
                                 value={formData.description}
                                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                placeholder="Add details about this routine..."
-                                rows="2"
+                                placeholder="Add routine description..."
+                                rows="3"
                             />
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
                             <div>
                                 <label className="text-sm font-medium" style={{ display: 'block', marginBottom: 'var(--spacing-sm)' }}>
                                     Start Time
@@ -217,7 +243,6 @@ export default function RoutineTracker() {
                                     className="input"
                                     value={formData.startTime}
                                     onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                                    placeholder="e.g., 06:00"
                                 />
                             </div>
 
@@ -230,29 +255,29 @@ export default function RoutineTracker() {
                                     className="input"
                                     value={formData.endTime}
                                     onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                                    placeholder="e.g., 07:00"
                                 />
+                            </div>
+
+                            <div>
+                                <label className="text-sm font-medium" style={{ display: 'block', marginBottom: 'var(--spacing-sm)' }}>
+                                    Category
+                                </label>
+                                <select
+                                    className="select"
+                                    value={formData.category}
+                                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                                >
+                                    <option value="health">Health</option>
+                                    <option value="work">Work</option>
+                                    <option value="learning">Learning</option>
+                                    <option value="personal">Personal</option>
+                                    <option value="fitness">Fitness</option>
+                                    <option value="mindfulness">Mindfulness</option>
+                                    <option value="other">Other</option>
+                                </select>
                             </div>
                         </div>
 
-                        <div style={{ marginBottom: 'var(--spacing-lg)' }}>
-                            <label className="text-sm font-medium" style={{ display: 'block', marginBottom: 'var(--spacing-sm)' }}>
-                                Category
-                            </label>
-                            <select
-                                className="select"
-                                value={formData.category}
-                                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                            >
-                                <option value="health">💪 Health</option>
-                                <option value="fitness">🏃 Fitness</option>
-                                <option value="work">💼 Work</option>
-                                <option value="learning">📚 Learning</option>
-                                <option value="mindfulness">🧘 Mindfulness</option>
-                                <option value="personal">🌟 Personal</option>
-                                <option value="other">📌 Other</option>
-                            </select>
-                        </div>
                         <div className="flex gap-sm">
                             <button type="submit" className="btn btn-primary">
                                 {editingRoutine ? 'Update Routine' : 'Create Routine'}
@@ -273,202 +298,105 @@ export default function RoutineTracker() {
                 </div>
             )}
 
-            {/* Routines List */}
-            {routines.length === 0 ? (
-                <div className="glass-card" style={{ textAlign: 'center', padding: 'var(--spacing-2xl)' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-md)' }}>🔄</div>
-                    <h3>No routines yet</h3>
-                    <p className="text-muted">Create your first daily routine to start tracking!</p>
-                </div>
-            ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xl)' }}>
-                    {Object.entries(routinesByCategory).map(([category, categoryRoutines]) => (
-                        <div key={category}>
-                            <h3 style={{ marginBottom: 'var(--spacing-lg)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                                <span>{getCategoryIcon(category)}</span>
-                                <span style={{ textTransform: 'capitalize' }}>{category}</span>
-                                <span className="badge badge-primary">{categoryRoutines.length}</span>
-                            </h3>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 'var(--spacing-md)' }}>
-                                {categoryRoutines.map((routine) => (
-                                    <div
-                                        key={routine.id}
-                                        className="glass-card"
-                                        style={{
-                                            borderLeft: completions[routine.id]
-                                                ? '4px solid var(--success-500)'
-                                                : '4px solid ' + getCategoryColor(routine.category),
-                                            cursor: 'pointer',
-                                        }}
-                                        onClick={() => handleToggleComplete(routine.id)}
-                                    >
-                                        <div className="flex items-start gap-md">
-                                            <input
-                                                type="checkbox"
-                                                checked={completions[routine.id] || false}
-                                                onChange={(e) => {
-                                                    e.stopPropagation();
-                                                    handleToggleComplete(routine.id);
-                                                }}
-                                                style={{
-                                                    width: '24px',
-                                                    height: '24px',
-                                                    marginTop: '2px',
-                                                    cursor: 'pointer',
-                                                    accentColor: getCategoryColor(routine.category),
-                                                }}
-                                            />
-
-                                            <div style={{ flex: 1 }}>
-                                                <h4 style={{
-                                                    margin: '0 0 var(--spacing-xs) 0',
-                                                    textDecoration: completions[routine.id] ? 'line-through' : 'none',
-                                                    color: completions[routine.id] ? 'var(--text-muted)' : 'var(--text-primary)',
-                                                }}>
-                                                    {routine.title}
-                                                </h4>
-
-                                                {routine.description && (
-                                                    <p className="text-sm text-secondary" style={{ margin: '0 0 var(--spacing-sm) 0' }}>
-                                                        {routine.description}
-                                                    </p>
-                                                )}
-
-                                                {(routine.startTime || routine.endTime) && (
-                                                    <div className="flex items-center gap-sm" style={{ marginBottom: 'var(--spacing-sm)' }}>
-                                                        <span className="badge badge-primary">
-                                                            🕐 {routine.startTime || '--:--'} - {routine.endTime || '--:--'}
-                                                        </span>
-                                                    </div>
-                                                )}
-
-                                                <div className="flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                                                    <button
-                                                        className="btn btn-sm btn-ghost"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleViewHistory(routine);
-                                                        }}
-                                                    >
-                                                        📊 History
-                                                    </button>
-                                                    <div className="flex gap-sm">
-                                                        <button
-                                                            className="btn btn-sm btn-ghost"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleEdit(routine);
-                                                            }}
-                                                        >
-                                                            ✏️
-                                                        </button>
-                                                        <button
-                                                            className="btn btn-sm btn-ghost"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleDelete(routine.id);
-                                                            }}
-                                                            style={{ color: 'var(--danger-400)' }}
-                                                        >
-                                                            🗑️
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* History Modal */}
-            {selectedRoutine && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'var(--bg-overlay)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 1000,
-                        padding: 'var(--spacing-xl)',
-                    }}
-                    onClick={() => setSelectedRoutine(null)}
-                >
-                    <div
-                        className="glass-card"
-                        style={{ maxWidth: '600px', width: '100%', maxHeight: '80vh', overflow: 'auto' }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="flex items-center justify-between" style={{ marginBottom: 'var(--spacing-lg)' }}>
-                            <h3 style={{ margin: 0 }}>📊 {selectedRoutine.title} - History</h3>
-                            <button className="btn btn-sm btn-ghost" onClick={() => setSelectedRoutine(null)}>
-                                ✕
-                            </button>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                            {getRoutineHistory(selectedRoutine.id, 14).map((day, index) => (
-                                <div
-                                    key={index}
-                                    className="flex items-center justify-between"
+            {/* Routine List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+                {loading ? (
+                    <div className="glass-card" style={{ textAlign: 'center', padding: 'var(--spacing-2xl)' }}>
+                        <div className="text-xl gradient-text">Loading routines...</div>
+                    </div>
+                ) : routines.length === 0 ? (
+                    <div className="glass-card" style={{ textAlign: 'center', padding: 'var(--spacing-2xl)' }}>
+                        <div style={{ fontSize: '3rem', marginBottom: 'var(--spacing-md)' }}>🔄</div>
+                        <h3>No routines yet</h3>
+                        <p className="text-muted">
+                            Create your first routine to start building consistent habits!
+                        </p>
+                    </div>
+                ) : (
+                    routines.map((routine) => (
+                        <div
+                            key={routine._id}
+                            className="glass-card"
+                            style={{
+                                borderLeft: isCompletedToday(routine) ? '4px solid var(--success-500)' : '4px solid var(--primary-500)',
+                            }}
+                        >
+                            <div className="flex items-start gap-md">
+                                <input
+                                    type="checkbox"
+                                    checked={isCompletedToday(routine)}
+                                    onChange={() => handleToggleComplete(routine._id)}
                                     style={{
-                                        padding: 'var(--spacing-md)',
-                                        background: 'var(--bg-elevated)',
-                                        borderRadius: 'var(--radius-md)',
-                                        borderLeft: day.completed ? '3px solid var(--success-500)' : '3px solid var(--border-default)',
-                                    }}
-                                >
-                                    <div>
-                                        <div className="font-medium">
-                                            {new Date(day.date).toLocaleDateString('en-US', {
-                                                weekday: 'short',
-                                                month: 'short',
-                                                day: 'numeric'
-                                            })}
-                                        </div>
-                                        <div className="text-sm text-muted">
-                                            {day.date === new Date().toISOString().split('T')[0] ? 'Today' : ''}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        {day.completed ? (
-                                            <span style={{ fontSize: '1.5rem' }}>✅</span>
-                                        ) : (
-                                            <span style={{ fontSize: '1.5rem', opacity: 0.3 }}>⭕</span>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)' }}>
-                            <div className="text-sm text-muted">Last 14 Days Completion Rate</div>
-                            <div className="text-xl font-bold" style={{ color: 'var(--primary-400)' }}>
-                                {Math.round(
-                                    (getRoutineHistory(selectedRoutine.id, 14).filter(d => d.completed).length / 14) * 100
-                                )}%
-                            </div>
-                            <div className="progress mt-sm">
-                                <div
-                                    className="progress-bar"
-                                    style={{
-                                        width: `${(getRoutineHistory(selectedRoutine.id, 14).filter(d => d.completed).length / 14) * 100}%`
+                                        width: '24px',
+                                        height: '24px',
+                                        marginTop: '4px',
+                                        cursor: 'pointer',
+                                        accentColor: 'var(--success-500)',
                                     }}
                                 />
+
+                                <div style={{ flex: 1 }}>
+                                    <div className="flex items-start justify-between gap-md" style={{ marginBottom: 'var(--spacing-sm)' }}>
+                                        <div>
+                                            <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                                                <span>{getCategoryIcon(routine.category)}</span>
+                                                <span>{routine.title}</span>
+                                            </h4>
+                                            {routine.description && (
+                                                <p className="text-sm text-secondary" style={{ margin: 'var(--spacing-xs) 0 0 0' }}>
+                                                    {routine.description}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-sm">
+                                            <span className="badge badge-primary">{routine.category}</span>
+                                        </div>
+                                    </div>
+
+                                    {(routine.startTime || routine.endTime) && (
+                                        <div className="text-sm text-muted" style={{ marginBottom: 'var(--spacing-sm)' }}>
+                                            ⏰ {routine.startTime} - {routine.endTime}
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center justify-between" style={{ marginTop: 'var(--spacing-md)' }}>
+                                        <div className="flex gap-lg">
+                                            <div className="text-sm">
+                                                <span className="text-muted">Streak:</span>{' '}
+                                                <span className="font-bold" style={{ color: 'var(--warning-400)' }}>
+                                                    {getStreak(routine)} days 🔥
+                                                </span>
+                                            </div>
+                                            <div className="text-sm">
+                                                <span className="text-muted">30-day rate:</span>{' '}
+                                                <span className="font-bold" style={{ color: 'var(--success-400)' }}>
+                                                    {getCompletionRate(routine)}%
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex gap-sm">
+                                            <button
+                                                className="btn btn-sm btn-ghost"
+                                                onClick={() => handleEdit(routine)}
+                                            >
+                                                ✏️ Edit
+                                            </button>
+                                            <button
+                                                className="btn btn-sm btn-ghost"
+                                                onClick={() => handleDelete(routine._id)}
+                                                style={{ color: 'var(--danger-400)' }}
+                                            >
+                                                🗑️ Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-            )}
+                    ))
+                )}
+            </div>
         </div>
     );
 }

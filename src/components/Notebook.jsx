@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { getNotes, addNote, updateNote, deleteNote } from '../utils/storage';
+import { notesAPI } from '../services/api';
 import { formatSmartDate } from '../utils/dateUtils';
 import { useApp } from '../App';
 
@@ -11,6 +11,7 @@ export default function Notebook() {
     const [isEditing, setIsEditing] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [showPreview, setShowPreview] = useState(true);
+    const [loading, setLoading] = useState(true);
     const { triggerRefresh } = useApp();
 
     const [formData, setFormData] = useState({
@@ -23,9 +24,17 @@ export default function Notebook() {
         loadNotes();
     }, []);
 
-    const loadNotes = () => {
-        const loadedNotes = getNotes();
-        setNotes(loadedNotes);
+    const loadNotes = async () => {
+        try {
+            setLoading(true);
+            const loadedNotes = await notesAPI.getAll();
+            setNotes(loadedNotes);
+        } catch (error) {
+            console.error('Error loading notes:', error);
+            alert('Failed to load notes. Please try again.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleCreateNew = () => {
@@ -46,33 +55,43 @@ export default function Notebook() {
         setShowPreview(true);
     };
 
-    const handleSave = () => {
-        const noteData = {
-            title: formData.title,
-            content: formData.content,
-            tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
-        };
+    const handleSave = async () => {
+        try {
+            const noteData = {
+                title: formData.title,
+                content: formData.content,
+                tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
+            };
 
-        if (selectedNote) {
-            updateNote(selectedNote.id, noteData);
-        } else {
-            const newNote = addNote(noteData);
-            setSelectedNote(newNote);
+            if (selectedNote) {
+                await notesAPI.update(selectedNote._id, noteData);
+            } else {
+                const newNote = await notesAPI.create(noteData);
+                setSelectedNote(newNote);
+            }
+
+            setIsEditing(false);
+            setShowPreview(true);
+            await loadNotes();
+            triggerRefresh();
+        } catch (error) {
+            console.error('Error saving note:', error);
+            alert('Failed to save note. Please try again.');
         }
-
-        setIsEditing(false);
-        setShowPreview(true);
-        loadNotes();
-        triggerRefresh();
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (selectedNote && window.confirm('Are you sure you want to delete this note?')) {
-            deleteNote(selectedNote.id);
-            setSelectedNote(null);
-            setFormData({ title: '', content: '', tags: '' });
-            loadNotes();
-            triggerRefresh();
+            try {
+                await notesAPI.delete(selectedNote._id);
+                setSelectedNote(null);
+                setFormData({ title: '', content: '', tags: '' });
+                await loadNotes();
+                triggerRefresh();
+            } catch (error) {
+                console.error('Error deleting note:', error);
+                alert('Failed to delete note. Please try again.');
+            }
         }
     };
 
@@ -108,7 +127,11 @@ export default function Notebook() {
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                    {filteredNotes.length === 0 ? (
+                    {loading ? (
+                        <div className="glass-card" style={{ textAlign: 'center', padding: 'var(--spacing-lg)' }}>
+                            <div className="text-muted">Loading notes...</div>
+                        </div>
+                    ) : filteredNotes.length === 0 ? (
                         <div className="glass-card" style={{ textAlign: 'center', padding: 'var(--spacing-lg)' }}>
                             <div style={{ fontSize: '2rem', marginBottom: 'var(--spacing-sm)' }}>📝</div>
                             <p className="text-sm text-muted">No notes found</p>
@@ -116,14 +139,14 @@ export default function Notebook() {
                     ) : (
                         filteredNotes.map((note) => (
                             <div
-                                key={note.id}
+                                key={note._id}
                                 className="glass-card"
                                 onClick={() => handleSelectNote(note)}
                                 style={{
                                     padding: 'var(--spacing-md)',
                                     cursor: 'pointer',
-                                    borderLeft: selectedNote?.id === note.id ? '4px solid var(--primary-500)' : '4px solid transparent',
-                                    background: selectedNote?.id === note.id ? 'var(--gradient-glass)' : 'var(--glass-bg)',
+                                    borderLeft: selectedNote?._id === note._id ? '4px solid var(--primary-500)' : '4px solid transparent',
+                                    background: selectedNote?._id === note._id ? 'var(--gradient-glass)' : 'var(--glass-bg)',
                                 }}
                             >
                                 <h4 style={{ margin: '0 0 var(--spacing-xs) 0', fontSize: '0.9375rem' }}>
