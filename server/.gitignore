@@ -1,11 +1,12 @@
-# Backend files
-server/node_modules/
-server/.env
-
-# Logs
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.env
+.venv
 *.log
-npm-debug.log*
-
-# OS files
 .DS_Store
-Thumbs.db

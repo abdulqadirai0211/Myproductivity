@@ -1,25 +1,25 @@
-# Personal Productivity App - Backend API
+# Personal Productivity API - FastAPI Backend
 
-Backend server for the Personal Productivity App with MongoDB Atlas integration.
+A high-performance FastAPI backend for the Personal Productivity application with MongoDB Atlas integration.
 
 ## Features
 
-- ✅ User authentication with JWT
-- ✅ Secure password hashing with bcrypt
-- ✅ RESTful API for all features
-- ✅ MongoDB Atlas cloud database
-- ✅ Protected routes with middleware
-- ✅ Input validation
-- ✅ Error handling
+- ✅ FastAPI framework (high performance)
+- ✅ Async MongoDB operations with Motor
+- ✅ JWT authentication
+- ✅ Pydantic data validation
+- ✅ Auto-generated API documentation (Swagger/OpenAPI)
+- ✅ CORS enabled
+- ✅ Type-safe Python code
 
 ## Tech Stack
 
-- **Runtime**: Node.js
-- **Framework**: Express.js
-- **Database**: MongoDB Atlas (Free Tier)
-- **Authentication**: JWT (JSON Web Tokens)
-- **Password Hashing**: bcryptjs
-- **Validation**: express-validator
+- **FastAPI**: Modern, fast web framework
+- **Motor**: Async MongoDB driver
+- **Pydantic**: Data validation
+- **PyJWT**: JWT authentication
+- **Passlib**: Password hashing (bcrypt)
+- **Uvicorn**: ASGI server
 
 ## API Endpoints
 
@@ -31,80 +31,152 @@ Backend server for the Personal Productivity App with MongoDB Atlas integration.
 ### Tasks
 - `GET /api/tasks` - Get all tasks (protected)
 - `POST /api/tasks` - Create task (protected)
-- `PUT /api/tasks/:id` - Update task (protected)
-- `DELETE /api/tasks/:id` - Delete task (protected)
+- `PUT /api/tasks/{id}` - Update task (protected)
+- `DELETE /api/tasks/{id}` - Delete task (protected)
 
 ### Notes
 - `GET /api/notes` - Get all notes (protected)
 - `POST /api/notes` - Create note (protected)
-- `PUT /api/notes/:id` - Update note (protected)
-- `DELETE /api/notes/:id` - Delete note (protected)
+- `PUT /api/notes/{id}` - Update note (protected)
+- `DELETE /api/notes/{id}` - Delete note (protected)
 
 ### Goals
 - `GET /api/goals` - Get all goals (protected)
 - `POST /api/goals` - Create goal (protected)
-- `PUT /api/goals/:id` - Update goal (protected)
-- `DELETE /api/goals/:id` - Delete goal (protected)
+- `PUT /api/goals/{id}` - Update goal (protected)
+- `DELETE /api/goals/{id}` - Delete goal (protected)
 
 ### Routines
 - `GET /api/routines` - Get all routines (protected)
 - `POST /api/routines` - Create routine (protected)
-- `PUT /api/routines/:id` - Update routine (protected)
-- `DELETE /api/routines/:id` - Delete routine (protected)
-- `POST /api/routines/:id/toggle/:date` - Toggle completion (protected)
+- `PUT /api/routines/{id}` - Update routine (protected)
+- `DELETE /api/routines/{id}` - Delete routine (protected)
+- `POST /api/routines/{id}/toggle/{date}` - Toggle completion (protected)
 
 ## Setup
 
-See [SETUP.md](./SETUP.md) for detailed setup instructions.
+### 1. Create Virtual Environment
 
-## Quick Start
+```bash
+cd fastapi_server
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+### 2. Install Dependencies
 
-2. Create `.env` file:
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+pip install -r requirements.txt
+```
 
-3. Add your MongoDB URI and JWT secret to `.env`
+### 3. Configure Environment
 
-4. Start development server:
-   ```bash
-   npm run dev
-   ```
+```bash
+cp .env.example .env
+# Edit .env with your MongoDB URI and JWT secret
+```
+
+### 4. Run Development Server
+
+```bash
+uvicorn main:app --reload --port 8000
+```
+
+Or:
+
+```bash
+python main.py
+```
+
+## API Documentation
+
+Once the server is running, visit:
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **OpenAPI JSON**: http://localhost:8000/openapi.json
 
 ## Environment Variables
 
-- `MONGODB_URI` - MongoDB Atlas connection string
-- `JWT_SECRET` - Secret key for JWT signing
-- `PORT` - Server port (default: 5000)
-- `NODE_ENV` - Environment (development/production)
+```env
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/db
+JWT_SECRET=your_secret_key
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=43200
+PORT=8000
+ENVIRONMENT=development
+CORS_ORIGINS=http://localhost:5173,https://yourapp.vercel.app
+```
+
+## Deployment
+
+### Render
+
+1. Create new Web Service
+2. Connect GitHub repository
+3. Configure:
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4. Add environment variables
+5. Deploy!
+
+### Railway
+
+1. Create new project from GitHub
+2. Add environment variables
+3. Railway auto-detects Python and deploys
+
+## Testing
+
+```bash
+# Test health endpoint
+curl http://localhost:8000/api/health
+
+# Register user
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"test123","name":"Test User"}'
+
+# Login
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"test123"}'
+```
+
+## Project Structure
+
+```
+fastapi_server/
+├── main.py              # FastAPI app
+├── config.py            # Settings
+├── database.py          # MongoDB connection
+├── models.py            # Pydantic models
+├── auth.py              # Authentication utilities
+├── routers/             # API routers
+│   ├── auth.py
+│   ├── tasks.py
+│   ├── notes.py
+│   ├── goals.py
+│   └── routines.py
+├── requirements.txt     # Python dependencies
+├── .env                 # Environment variables
+└── README.md
+```
 
 ## Security
 
-- Passwords are hashed using bcrypt (10 salt rounds)
-- JWT tokens expire after 30 days
-- All data routes require authentication
-- User can only access their own data
-- Input validation on all endpoints
+- Passwords hashed with bcrypt
+- JWT tokens for authentication
+- Protected routes with dependencies
+- CORS configured for allowed origins
+- Input validation with Pydantic
 
-## Development
+## Performance
 
-```bash
-npm run dev  # Start with nodemon (auto-reload)
-npm start    # Start production server
-```
-
-## Database Models
-
-- **User**: email, password (hashed), name, createdAt
-- **Task**: title, description, deadline, priority, completed, user ref
-- **Note**: title, content, tags, user ref
-- **Goal**: title, description, period, targetDate, progress, milestones, user ref
-- **Routine**: title, description, startTime, endTime, category, completions, user ref
+- Async/await for all database operations
+- Connection pooling with Motor
+- Fast JSON serialization
+- Efficient MongoDB queries
 
 ## License
 
